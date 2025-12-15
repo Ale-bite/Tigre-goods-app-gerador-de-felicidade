@@ -1,24 +1,15 @@
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
-import react from '@vitejs/plugin-react';
-const ambiente = process.env
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [react()],
-      define: {
-  'process.env.API_KEY': JSON.stringify(ambiente.VITE_GEMINI_API_KEY),
-  'process.env.GEMINI_API_KEY': JSON.stringify(ambiente.VITE_GEMINI_API_KEY)
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-      },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
-});
+// Correção para ReferenceError: ambiente não está definido
+const ambiente = process.env 
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  define: {
+    // Garante que o código de front-end possa acessar as chaves Vercel
+    'process.env.API_KEY': JSON.stringify(ambiente.VITE_GEMINI_API_KEY),
+    'process.env.GEMINI_API_KEY': JSON.stringify(ambiente.VITE_GEMINI_API_KEY)
+  },
+})
