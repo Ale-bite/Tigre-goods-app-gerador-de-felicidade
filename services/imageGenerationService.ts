@@ -1,80 +1,84 @@
 import { GoogleGenAI } from "@google/genai";
 import { SCENE_IDEAS } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '' });
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-
-export const generateColoringPage = async (): Promise<{ imageUrl?: string; error?: string }> => {
-  if (!process.env.API_KEY) { const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+const callGenAI = async (model: string, prompt: string) => {
+  // CORREÇÃO: Usa qualquer um dos nomes de chave que o Vercel/Vite fornecer
+  const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
+  const ai = new GoogleGenAI({ apiKey });
   
-  if (!apiKey) {
-    return { error: "A chave da API não está configurada. Verifique as variáveis no Vercel." };
-  }
-    return { error: "API Key is not configured. Please ensure process.env.API_KEY is set." };
-  }
-
-  // 1. Seleciona uma cena aleatória da lista expandida
-  const randomScene = SCENE_IDEAS[Math.floor(Math.random() * SCENE_IDEAS.length)];
-
-  // 2. Prompt altamente específico para o estilo "Tigre Goods"
-  const prompt = `
-    A high-quality black and white coloring book page for children. 
-    Subject: The main character from the "tigre goods" coloring book, which is a cute, round, chibi-style baby tiger. ${randomScene}. 
-    Style: Thick, clean, consistent black outlines on a pure white background. 
-    No shading, no grayscale, no colors, no gradients. Flat vector line art style. 
-    The composition should be centered and clear, suitable for a coloring book.
-  `;
-  
-  try {
-    // Usando gemini-2.5-flash-image com structure simplificada para evitar erros de RPC
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: prompt, // Passando string direta para maior compatibilidade
-      config: {
-        imageConfig: {
-          aspectRatio: '3:4', // Formato retrato
-        }
+  return await ai.models.generateContent({
+    model: model,
+    contents: prompt,
+    config: {
+      imageConfig: {
+        aspectRatio: '3:4',
+        ...(model.includes('pro') ? { imageSize: '1K' } : {}) 
       }
-    });
+    }
+  });
+};
 
-    let imageUrl: string | undefined;
-
-    // Iterar pelas partes para encontrar a imagem
+const generateWithGemini = async (model: string, prompt: string, onRetry?: (msg: string) => void, attempt = 1): Promise<string> => {
+  try {
+    const response = await callGenAI(model, prompt);
     if (response.candidates?.[0]?.content?.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
-          const base64EncodeString = part.inlineData.data;
-          imageUrl = `data:image/png;base64,${base64EncodeString}`;
-          break;
+          return `data:image/png;base64,${part.inlineData.data}`;
         }
       }
     }
-
-    if (imageUrl) {
-      return { imageUrl };
-    } else {
-      console.warn("AI response did not contain image data:", response);
-      // Verifica se houve resposta de texto explicando recusa
-      const textPart = response.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
-      if (textPart) {
-         return { error: `A IA não gerou a imagem. Resposta: ${textPart}` };
-      }
-      return { error: "A IA não conseguiu gerar uma imagem automática. Tente clicar novamente." };
-    }
-
+    throw new Error("Resposta sem imagem.");
   } catch (e: any) {
-    console.error("Error generating image:", e);
-    // Tratamento de erro aprimorado
-    let errorMessage = "Ocorreu um erro ao gerar a imagem.";
-    const msg = e.message || e.toString();
-    
-    if (msg.includes("429")) {
-      errorMessage = "Muitas solicitações. Aguarde um momento e tente novamente.";
-    } else if (msg.includes("500") || msg.includes("Rpc failed") || msg.includes("xhr error")) {
-      errorMessage = "Erro de conexão com o servidor de IA. Tente novamente em alguns segundos.";
-    } else if (msg) {
-      errorMessage = `Erro: ${msg.substring(0, 100)}`;
+    const errorStr = JSON.stringify(e, Object.getOwnPropertyNames(e)) + (e.message || '');
+    if (errorStr.includes('GenerateRequestsPerDay') || errorStr.includes('PerDay')) {
+      throw new Error("DAILY_QUOTA_EXCEEDED");
     }
-    return { error: errorMessage };
+    if ((errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED')) && attempt <= 3) {
+      let delay = Math.pow(2, attempt) * 2000;
+      if (onRetry) onRetry(`Servidor ocupado. Aguardando ${Math.round(delay/1000)}s...`);
+      await wait(delay);
+      return generateWithGemini(model, prompt, onRetry, attempt + 1);
+    }
+    throw e;
   }
+};
+
+export const generateColoringPage = async (onRetry?: (msg: string) => void): Promise<{ imageUrl?: string; error?: string; isQuota?: boolean }> => {
+  // CORREÇÃO: Unificando a verificação da chave para evitar o erro de "chave não configurada"
+  const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    return { error: "A chave API não foi encontrada no ambiente." };
+  }
+
+  const randomScene = SCENE_IDEAS[Math.floor(Math.random() * SCENE_IDEAS.length)];
+
+  // GARANTIA: Prompt específico para o livro Tigre Goods
+  const prompt = `
+    A high-quality black and white coloring book page for children. 
+    Subject: The main character from the "tigre goods" coloring book, which is a cute, round, chibi-style baby tiger character standing on two legs. 
+    Action/Scene: The tiger is ${randomScene}. 
+    Style: Thick, clean, consistent black outlines on a pure white background. No shading.
+  `;
+  
+  const modelsToTry = ['gemini-2.5-flash-image', 'gemini-3-pro-image-preview'];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const imageUrl = await generateWithGemini(model, prompt, onRetry);
+      return { imageUrl };
+    } catch (e: any) {
+      lastError = e;
+      if (e.message === "DAILY_QUOTA_EXCEEDED") continue;
+    }
+  }
+
+  const isDailyQuota = lastError?.message === "DAILY_QUOTA_EXCEEDED" || JSON.stringify(lastError).includes('PerDay');
+  return { 
+    error: isDailyQuota ? "Limite diário gratuito atingido!" : "Muitas solicitações. Aguarde um momento.", 
+    isQuota: isDailyQuota 
+  };
 };
