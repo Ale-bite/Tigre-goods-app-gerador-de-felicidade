@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { SCENE_IDEAS } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '' });
 
 export const generateColoringPage = async (): Promise<{ imageUrl?: string; error?: string }> => {
   if (!process.env.API_KEY) {
@@ -14,8 +14,7 @@ export const generateColoringPage = async (): Promise<{ imageUrl?: string; error
   // 2. Prompt altamente específico para o estilo "Tigre Goods"
   const prompt = `
     A high-quality black and white coloring book page for children. 
-    Subject: A cute, round, chibi-style baby tiger character standing on two legs, very expressive and adorable. 
-    Action/Scene: The tiger is ${randomScene}. 
+    Subject: The main character from the "tigre goods" coloring book, which is a cute, round, chibi-style baby tiger. ${randomScene}. 
     Style: Thick, clean, consistent black outlines on a pure white background. 
     No shading, no grayscale, no colors, no gradients. Flat vector line art style. 
     The composition should be centered and clear, suitable for a coloring book.
