@@ -3,8 +3,13 @@ import { SCENE_IDEAS } from '../constants';
 
 const ai = new GoogleGenAI({ apiKey: process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '' });
 
+
 export const generateColoringPage = async (): Promise<{ imageUrl?: string; error?: string }> => {
-  if (!process.env.API_KEY) {
+  if (!process.env.API_KEY) { const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+  
+  if (!apiKey) {
+    return { error: "A chave da API não está configurada. Verifique as variáveis no Vercel." };
+  }
     return { error: "API Key is not configured. Please ensure process.env.API_KEY is set." };
   }
 
